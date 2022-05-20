@@ -69,7 +69,7 @@ def compute_metrics(logits, labels):
 @jax.jit
 def train_step(state, x, y):
     def loss_fn(params):
-        logits = LinearModel([128, 64, 10]).apply(
+        logits = state.apply_fn(
             {'params':params}, x
         )
         one_hot_label = jax.nn.one_hot(y, num_classes=10)
@@ -85,7 +85,7 @@ def train_step(state, x, y):
 
 @jax.jit
 def eval_step(state, x, y):
-    logits = LinearModel([128, 64, 10]).apply(
+    logits = state.apply_fn(
         {'params':state.params}, x
     )
     one_hot_label = jax.nn.one_hot(y, num_classes=10)
