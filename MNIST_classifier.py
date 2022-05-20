@@ -24,6 +24,7 @@ def numpy_collate(batch):
     return np.array(batch)
 
 def get_dataloader(batch_size):
+    os.makedirs('data/', exist_ok=True)
     train_ds = MNIST('data/', train=True, download=True, transform=FlattenAndCast())
     test_ds = MNIST('data/', train=False, download=True, transform=FlattenAndCast())
     train_loader = DataLoader(train_ds, 
