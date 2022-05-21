@@ -1,3 +1,4 @@
+import os
 from typing import Sequence
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
@@ -37,6 +38,8 @@ def compute_metrics(logits, labels):
 @jax.jit
 def train_step(state, x, y):
     def loss_fn(params):
+        # since there is no mutable variables (eg. batch_stats),
+        # apply_fn returns only the output.
         logits = state.apply_fn(
             {'params':params}, x
         )
@@ -103,7 +106,8 @@ def main():
     
     train_loader, test_loader = get_mnist_dataloader(batch_size=8)
 
-    save_dir = 'exp_results/MNIST/'
+    save_dir = 'exp_results/MNIST/classification'
+    os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     train(5, train_loader, test_loader, state, writer)
 
