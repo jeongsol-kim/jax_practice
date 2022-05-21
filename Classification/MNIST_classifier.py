@@ -1,8 +1,5 @@
-import os
 from typing import Sequence
-from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.datasets import MNIST
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -10,39 +7,10 @@ import jax.random as random
 import flax.linen as nn
 from flax.training.train_state import TrainState
 import optax
+from data.utils import get_mnist_dataloader
 
 def to_np(a):
     return np.asarray(a)
-
-def numpy_collate(batch):
-  if isinstance(batch[0], np.ndarray):
-    return np.stack(batch)
-  elif isinstance(batch[0], (tuple,list)):
-    transposed = zip(*batch)
-    return [numpy_collate(samples) for samples in transposed]
-  else:
-    return np.array(batch)
-
-def get_dataloader(batch_size):
-    os.makedirs('data/', exist_ok=True)
-    train_ds = MNIST('data/', train=True, download=True, transform=FlattenAndCast())
-    test_ds = MNIST('data/', train=False, download=True, transform=FlattenAndCast())
-    train_loader = DataLoader(train_ds, 
-                              batch_size=batch_size,
-                              shuffle=True,
-                              collate_fn=numpy_collate,
-                              )
-    test_loader = DataLoader(test_ds, 
-                             batch_size=batch_size,
-                             shuffle=False,
-                             collate_fn=numpy_collate,
-                             )
-
-    return train_loader, test_loader
-
-class FlattenAndCast(object):
-  def __call__(self, pic):
-    return np.ravel(np.array(pic, dtype=jnp.float32))
 
 class LinearModel(nn.Module):
     features: Sequence[int]
@@ -133,7 +101,7 @@ def main():
     tx = optax.adam(learning_rate=1e-4)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     
-    train_loader, test_loader = get_dataloader(batch_size=8)
+    train_loader, test_loader = get_mnist_dataloader(batch_size=8)
 
     save_dir = 'exp_results/MNIST/'
     writer = SummaryWriter(log_dir=save_dir)
