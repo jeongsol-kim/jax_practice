@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
 from torchvision.datasets import VisionDataset
-from torchvision.transforms import Resize, Compose, RandomResizedCrop
+from torchvision.transforms import Resize, Compose, RandomCrop, RandomHorizontalFlip
 from PIL.Image import BICUBIC
 from PIL import Image
 import random
@@ -147,7 +147,11 @@ class UnalignedDataset(VisionDataset):
         return max(self.A_size, self.B_size)
 
 def get_horse2zebra_dataloader(batch_size):
-    transform = Compose([RandomResizedCrop((128, 128)), NumpyCast()])
+    ratio = 1.12
+    transform = Compose([Resize((int(128*ratio), int(128*ratio))),
+                         RandomCrop((128, 128)),
+                         RandomHorizontalFlip(),
+                         NumpyCast()])
 
     train_ds = UnalignedDataset('data/horse2zebra/', phase="train", transform=transform)
     test_ds = UnalignedDataset('data/horse2zebra/', phase="test", transform=transform)

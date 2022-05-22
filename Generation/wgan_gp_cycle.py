@@ -101,31 +101,26 @@ class Unet(nn.Module):
 class PatchGANDiscriminator(nn.Module):
     """
     Taken from https://github.com/bilal2vec/jax-dcgan/blob/main/dcgan.ipynb
+    BatchNorm should not be used for critics.    
     """
     training: bool
 
     @nn.compact
     def __call__(self, x):
-        x = nn.Conv(features=64, kernel_size=(
-            4, 4), strides=(2, 2), padding='SAME', use_bias=False)(x)
+        x = nn.Conv(features=64, kernel_size=(4,4), strides=(2, 2), 
+                    padding='SAME', use_bias=False)(x)
         x = nn.leaky_relu(x, negative_slope=0.2)
-
-        x = nn.Conv(features=64*2, kernel_size=(4, 4),
+        
+        x = nn.Conv(features=64*2, kernel_size=(4,4),
                     strides=(2, 2), padding='SAME', use_bias=False)(x)
-        x = nn.BatchNorm(
-            use_running_average=not self.training, momentum=0.9)(x)
         x = nn.leaky_relu(x, negative_slope=0.2)
 
         x = nn.Conv(features=64*4, kernel_size=(4, 4),
                     strides=(2, 2), padding='SAME', use_bias=False)(x)
-        x = nn.BatchNorm(
-            use_running_average=not self.training, momentum=0.9)(x)
         x = nn.leaky_relu(x, negative_slope=0.2)
 
         x = nn.Conv(features=64*8, kernel_size=(4, 4),
                     strides=(2, 2), padding='SAME', use_bias=False)(x)
-        x = nn.BatchNorm(
-            use_running_average=not self.training, momentum=0.9)(x)
         x = nn.leaky_relu(x, negative_slope=0.2)
 
         x = nn.Conv(features=1, kernel_size=(
@@ -176,8 +171,9 @@ def MAE_loss(y_pred, y_true):
     return (jnp.abs(y_pred-y_true)).sum()
 
 @jax.jit
-def loss_g_fn(pm_ga2b, pm_gb2a, pm_da, pm_db, 
-              var_ga2b, var_gb2a, var_da, var_db,
+def loss_g_fn(pm_ga2b, pm_gb2a, 
+              pm_da, pm_db, 
+              var_ga2b, var_gb2a,
               real_a, real_b):
     
     # This is possible only when Generator_A2B & Generator_B2A has the same structure.
@@ -189,23 +185,22 @@ def loss_g_fn(pm_ga2b, pm_gb2a, pm_da, pm_db,
     # Same for disc_fn. See above comment.
     disc_fn = functools.partial(
         Discriminator_A(training=True).apply,
-        mutable=["batch_stats"]   
     )
     
     # GAN loss for A->B
     tmp = {'params': pm_ga2b, 'batch_stats':var_ga2b["batch_stats"]}
     fake_b, var_ga2b = gen_fn(tmp, real_a)
     
-    tmp = {'params':pm_db, 'batch_stats':var_db["batch_stats"]}
-    fake_b_logit, var_db = disc_fn(tmp, fake_b)
+    tmp = {'params':pm_db}
+    fake_b_logit = disc_fn(tmp, fake_b)
     loss_gb = -fake_b_logit.mean()
     
     # GAN loss for B->A
     tmp = {'params': pm_gb2a, 'batch_stats':var_gb2a["batch_stats"]}
     fake_a, var_gb2a = gen_fn(tmp, real_b)
     
-    tmp = {'params':pm_da, 'batch_stats':var_da["batch_stats"]}
-    fake_a_logit, var_da = disc_fn(tmp, fake_a)
+    tmp = {'params':pm_da}
+    fake_a_logit = disc_fn(tmp, fake_a)
     loss_ga = -fake_a_logit.mean()
     
     # Cycle consistency loss
@@ -228,10 +223,10 @@ def loss_g_fn(pm_ga2b, pm_gb2a, pm_da, pm_db,
         'recon_b':recon_b
     }
     
-    return loss_g, (var_ga2b, var_gb2a, var_da, var_db, generated)
+    return loss_g, (var_ga2b, var_gb2a, generated)
     
 @jax.jit
-def loss_d_fn(pm_d, var_d, real, fake, gp_rng):
+def loss_d_fn(pm_d, real, fake, gp_rng):
     # For discriminators, we need to use different optimizers.
     # Thus, loss_d_fn for one discriminator is enough, which is simpler than loss_g_fn.
     
@@ -239,15 +234,13 @@ def loss_d_fn(pm_d, var_d, real, fake, gp_rng):
     # See the comment in loss_g_fn.
     disc_fn = functools.partial(
         Discriminator_A(training=True).apply,
-        mutable=["batch_stats"]   
+        {'params':pm_d}
     )
     
-    tmp = {'params':pm_d, 'batch_stats':var_d["batch_stats"]}
-    fake_logit, var_d = disc_fn(tmp, fake)
+    fake_logit = disc_fn(fake)
     loss_d_fake = fake_logit.mean()
     
-    tmp = {'params':pm_d, 'batch_stats':var_d["batch_stats"]}
-    real_logit, var_d = disc_fn(tmp, real)
+    real_logit = disc_fn(real)
     loss_d_real = real_logit.mean()
     
     # gradient panelty
@@ -256,37 +249,28 @@ def loss_d_fn(pm_d, var_d, real, fake, gp_rng):
     alpha = jnp.tile(alpha, (1, fake.shape[1], fake.shape[2], fake.shape[3]))
     interpolate = alpha * real + (1-alpha) * fake
 
-    gp = jax.grad(gradient_panelty, argnums=0)(
-        interpolate, pm_d, var_d
-    )
+    gp = jax.grad(gradient_panelty, argnums=0)(interpolate, pm_d)
     gp = jnp.reshape(gp, (gp.shape[0], -1))
     gp_norm = jnp.sqrt((gp**2).sum(axis=1) + 1e-12)
     gp_norm = ((1-gp_norm)**2).mean()
 
     loss_d = loss_d_fake - loss_d_real + 10 * gp_norm
 
-    return loss_d, (var_d)
+    return loss_d
 
 @jax.jit
-def gradient_panelty(interpolate, params_d, variable_d):
-    inter_logits, _ = Discriminator_A(training=True).apply(
-        {'params':params_d, 'batch_stats':variable_d["batch_stats"]},
-        interpolate,
-        mutable=['batch_stats']
-    )
-
+def gradient_panelty(interpolate, params_d):
+    inter_logits = Discriminator_A(training=True).apply({'params':params_d},interpolate)
     return inter_logits.mean()
 
 @jax.jit
 def train_step(state_g, state_da, state_db, real_a, real_b, gp_rng):
     # we assume that n_critics=1
     grad_g_fn = jax.value_and_grad(loss_g_fn, argnums=[0,1], has_aux=True)
-    grad_d_fn = jax.value_and_grad(loss_d_fn, argnums=0, has_aux=True)
+    grad_d_fn = jax.value_and_grad(loss_d_fn, argnums=0, has_aux=False)
 
     var_g_a2b = {'batch_stats': state_g.batch_stats_a2b}
     var_g_b2a = {'batch_stats': state_g.batch_stats_b2a}
-    var_da = {'batch_stats': state_da.batch_stats}
-    var_db = {'batch_stats': state_db.batch_stats}
     
     # update generator
     # aux = (var_ga2b, var_gb2a, var_da, var_db, generated)
@@ -296,8 +280,6 @@ def train_step(state_g, state_da, state_db, real_a, real_b, gp_rng):
                                        state_db.params,
                                        var_g_a2b,
                                        var_g_b2a,
-                                       var_da,
-                                       var_db,
                                        real_a, 
                                        real_b)
     
@@ -311,29 +293,22 @@ def train_step(state_g, state_da, state_db, real_a, real_b, gp_rng):
     # udpate discriminator
     var_g_a2b = {'batch_stats': state_g.batch_stats_a2b}
     var_g_b2a = {'batch_stats': state_g.batch_stats_b2a}
-    var_da = {'batch_stats': aux[2]["batch_stats"]}
-    var_db = {'batch_stats': aux[3]["batch_stats"]}
     
-    # aux = (var_d)
     gp_rng, sub_gp_rng = random.split(gp_rng)
-    (loss_da, var_da), grads_da = grad_d_fn(state_da.params,
-                                         var_da,
-                                         real_a,
-                                         aux[-1]['fake_a'],
-                                         sub_gp_rng)
+    loss_da, grads_da = grad_d_fn(state_da.params,
+                                    real_a,
+                                    aux[-1]['fake_a'],
+                                    sub_gp_rng)
 
-    state_da = state_da.apply_gradients(grads=grads_da,
-                                        batch_stats=var_da["batch_stats"])
+    state_da = state_da.apply_gradients(grads=grads_da)
     
     gp_rng, sub_gp_rng = random.split(gp_rng)
-    (loss_db, var_db), grads_db = grad_d_fn(state_db.params,
-                                         var_db,
-                                         real_b,
-                                         aux[-1]['fake_b'],
-                                         sub_gp_rng)
+    loss_db, grads_db = grad_d_fn(state_db.params,
+                                    real_b,
+                                    aux[-1]['fake_b'],
+                                    sub_gp_rng)
     
-    state_db = state_db.apply_gradients(grads=grads_db,
-                                        batch_stats=var_db["batch_stats"])
+    state_db = state_db.apply_gradients(grads=grads_db)
     
     return state_g, state_da, state_db, (loss_g, loss_da, loss_db), aux[-1]
 
@@ -405,23 +380,19 @@ def main():
         batch_stats_b2a=gb2a_state['batch_stats']
     )
 
-    da_train_state = TrainStateBN.create(
+    da_train_state = TrainState.create(
         apply_fn=discriminator_a.apply,
         params=da_state['params'],
-        tx=da_tx,
-        batch_stats=da_state['batch_stats']
-    )
+        tx=da_tx)
     
-    db_train_state = TrainStateBN.create(
+    db_train_state = TrainState.create(
         apply_fn=discriminator_b.apply,
         params=db_state['params'],
-        tx=db_tx,
-        batch_stats=db_state['batch_stats']
-    )
+        tx=db_tx)
 
     train_loader, test_loader = get_dataloader(batch_size=8)
 
-    save_dir = 'exp_results/generation/wgan_gp_cycle/'
+    save_dir = 'exp_results/generation/wgan_gp_cycle/version_2'
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
 

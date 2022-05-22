@@ -55,7 +55,8 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
     """
-    Taken from https://github.com/bilal2vec/jax-dcgan/blob/main/dcgan.ipynb
+    Modified from https://github.com/bilal2vec/jax-dcgan/blob/main/dcgan.ipynb.
+    BatchNorm should not be used for critics.    
     """
     training: bool
 
@@ -67,20 +68,14 @@ class Discriminator(nn.Module):
 
         x = nn.Conv(features=64*2, kernel_size=(4, 4),
                     strides=(2, 2), padding='SAME', use_bias=False)(x)
-        x = nn.BatchNorm(
-            use_running_average=not self.training, momentum=0.9)(x)
         x = nn.leaky_relu(x, negative_slope=0.2)
 
         x = nn.Conv(features=64*4, kernel_size=(4, 4),
                     strides=(2, 2), padding='SAME', use_bias=False)(x)
-        x = nn.BatchNorm(
-            use_running_average=not self.training, momentum=0.9)(x)
         x = nn.leaky_relu(x, negative_slope=0.2)
 
         x = nn.Conv(features=64*8, kernel_size=(4, 4),
                     strides=(2, 2), padding='SAME', use_bias=False)(x)
-        x = nn.BatchNorm(
-            use_running_average=not self.training, momentum=0.9)(x)
         x = nn.leaky_relu(x, negative_slope=0.2)
 
         x = nn.Conv(features=1, kernel_size=(
@@ -93,49 +88,40 @@ class Discriminator(nn.Module):
 def train_step(state_g, state_d, noise, real, gp_rng):
     # we assume that n_critics=1
 
-    def gradient_panelty(interpolate, params_d, variable_d):
-        inter_logits, _ = Discriminator(training=True).apply(
-            {'params':params_d, 'batch_stats':variable_d["batch_stats"]},
-            interpolate,
-            mutable=['batch_stats']
-        )
+    def gradient_panelty(interpolate, params_d):
+        inter_logits = Discriminator(training=True).apply(
+                        {'params':params_d},
+                        interpolate)
 
         return inter_logits.mean()
 
-    def loss_g_fn(params_g, params_d, variable_g, variable_d):
+    def loss_g_fn(params_g, params_d, variable_g):
         fake, variable_g = Generator(training=True).apply(
             {'params':params_g, 'batch_stats':variable_g["batch_stats"]},
             noise,
             mutable=['batch_stats']
         )
 
-        fake_logits, variable_d = Discriminator(training=True).apply(
-            {'params':params_d, 'batch_stats':variable_d["batch_stats"]},
-            fake,
-            mutable=['batch_stats']
-        )
+        fake_logits = Discriminator(training=True).apply(
+            {'params':params_d},
+            fake)
 
         loss_g = -fake_logits.mean()
-        return loss_g, (variable_g, variable_d, fake)
+        return loss_g, (variable_g, fake)
 
-    def loss_d_fn(params_g, params_d, variable_g, variable_d):
+    def loss_d_fn(params_g, params_d, variable_g):
         fake, variable_g = Generator(training=True).apply(
             {'params':params_g, 'batch_stats':variable_g["batch_stats"]},
             noise,
-            mutable=['batch_stats']
-        )
+            mutable=['batch_stats'])
 
-        real_logits, variable_d = Discriminator(training=True).apply(
-            {'params':params_d, 'batch_stats':variable_d["batch_stats"]},
-            real,
-            mutable=['batch_stats']
-        )
+        real_logits= Discriminator(training=True).apply(
+            {'params':params_d},
+            real)
 
-        fake_logits, variable_d = Discriminator(training=True).apply(
-            {'params':params_d, 'batch_stats':variable_d["batch_stats"]},
-            fake,
-            mutable=['batch_stats']
-        )
+        fake_logits= Discriminator(training=True).apply(
+            {'params':params_d},
+            fake)
 
         real_loss = real_logits.mean()
         fake_loss = fake_logits.mean()
@@ -146,40 +132,34 @@ def train_step(state_g, state_d, noise, real, gp_rng):
         alpha = jnp.tile(alpha, (1, fake.shape[1], fake.shape[2], fake.shape[3]))
         interpolate = alpha * real + (1-alpha) * fake
 
-        gp = jax.grad(gradient_panelty, argnums=0)(
-            interpolate, params_d, variable_d
-        )
+        gp = jax.grad(gradient_panelty, argnums=0)(interpolate, params_d)
         gp = jnp.reshape(gp, (gp.shape[0], -1))
         gp_norm = jnp.sqrt((gp**2).sum(axis=1) + 1e-12)
         gp_norm = ((1-gp_norm)**2).mean()
 
-        loss_d = fake_loss - real_loss + 10 * gp_norm
+        loss_d = fake_loss - real_loss + 10*gp_norm
 
-        return loss_d, (variable_g, variable_d, fake)
+        return loss_d, (variable_g, fake)
 
         
     grad_g_fn = jax.value_and_grad(loss_g_fn, argnums=0, has_aux=True)
     grad_d_fn = jax.value_and_grad(loss_d_fn, argnums=1, has_aux=True)
 
     variable_g = {'batch_stats': state_g.batch_stats}
-    variable_d = {'batch_stats': state_d.batch_stats}
 
     # update discriminator
-    (loss_d, (variable_g, variable_d, fake)), grads_d = grad_d_fn(state_g.params, 
+    (loss_d, (variable_g, fake)), grads_d = grad_d_fn(state_g.params, 
                                                       state_d.params, 
-                                                      variable_g, 
-                                                      variable_d)
-    state_d = state_d.apply_gradients(grads=grads_d, batch_stats=variable_d["batch_stats"])
-    variable_d = {'batch_stats': state_d.batch_stats}
+                                                      variable_g)
+    state_d = state_d.apply_gradients(grads=grads_d)
 
     # update generator
-    (loss_g, (variable_g, variable_d, fake)), grads_g = grad_g_fn(state_g.params, 
+    (loss_g, (variable_g, fake)), grads_g = grad_g_fn(state_g.params, 
                                                       state_d.params, 
-                                                      variable_g, 
-                                                      variable_d)
+                                                      variable_g)
 
     state_g = state_g.apply_gradients(grads=grads_g, batch_stats=variable_g["batch_stats"])
-
+    
     return state_g, state_d, loss_g, loss_d, fake
 
 def train(num_epochs, train_loader, eval_loader, state_g, state_d, rng, writer):
@@ -192,7 +172,8 @@ def train(num_epochs, train_loader, eval_loader, state_g, state_d, rng, writer):
             x = x * 2. - 1.
 
             rng, gp_rng = random.split(rng)
-            state_g, state_d, loss_g, loss_d, fake = train_step(state_g, state_d, noise, x, gp_rng)
+            state_g, state_d, loss_g, loss_d, fake = \
+                train_step(state_g, state_d, noise, x, gp_rng)
 
             if (i+1)%50 == 0:
                 print(f'Epoch {epoch} | Iteration {i+1} |\
@@ -218,12 +199,18 @@ def main():
     g_tx = optax.adam(learning_rate=1e-4)
     d_tx = optax.adam(learning_rate=1e-4)
 
-    g_train_state = TrainStateBN.create(apply_fn=generator.apply, params=g_state["params"], tx=g_tx, batch_stats=g_state["batch_stats"])
-    d_train_state = TrainStateBN.create(apply_fn=discriminator.apply, params=d_state["params"], tx=d_tx, batch_stats=d_state["batch_stats"])
+    g_train_state = TrainStateBN.create(apply_fn=generator.apply,
+                                        params=g_state["params"], 
+                                        tx=g_tx, 
+                                        batch_stats=g_state["batch_stats"])
+    
+    d_train_state = TrainState.create(apply_fn=discriminator.apply, 
+                                      params=d_state["params"], 
+                                      tx=d_tx)
 
     train_loader, test_loader = get_mnist_dataloader(batch_size=8)
 
-    save_dir = 'exp_results/MNIST/wgan_gp/'
+    save_dir = 'exp_results/MNIST/generation/wgan_gp/version_1/'
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     train(5, train_loader, test_loader, g_train_state, d_train_state, rngs, writer)
