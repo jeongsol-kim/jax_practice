@@ -170,6 +170,7 @@ def train_step(state_g, state_d, noise, real, gp_rng):
                                                       variable_g, 
                                                       variable_d)
     state_d = state_d.apply_gradients(grads=grads_d, batch_stats=variable_d["batch_stats"])
+    variable_d = {'batch_stats': state_d.batch_stats}
 
     # update generator
     (loss_g, (variable_g, variable_d, fake)), grads_g = grad_g_fn(state_g.params, 
