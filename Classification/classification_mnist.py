@@ -96,6 +96,8 @@ def evaluation(data_loader, state):
     return mean_loss, mean_acc
 
 def main():
+    os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+    
     rngs = random.PRNGKey(seed=123)
     model = LinearModel(features=[128, 64, 10])
     dummy_x = jnp.ones((1, 28*28))

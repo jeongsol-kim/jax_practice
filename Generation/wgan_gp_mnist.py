@@ -89,10 +89,6 @@ class Discriminator(nn.Module):
 
         return x
 
-@jax.vmap
-def bce_logits_loss(logit, label):
-    return jnp.maximum(logit, 0) - logit * label + jnp.log(1 + jnp.exp(-jnp.abs(logit)))
-
 @jax.jit
 def train_step(state_g, state_d, noise, real, gp_rng):
     # we assume that n_critics=1
@@ -155,7 +151,7 @@ def train_step(state_g, state_d, noise, real, gp_rng):
         )
         gp = jnp.reshape(gp, (gp.shape[0], -1))
         gp_norm = jnp.sqrt((gp**2).sum(axis=1) + 1e-12)
-        gp_norm = ((gp_norm-1)**2).mean()
+        gp_norm = ((1-gp_norm)**2).mean()
 
         loss_d = fake_loss - real_loss + 10 * gp_norm
 
@@ -208,6 +204,8 @@ def train(num_epochs, train_loader, eval_loader, state_g, state_d, rng, writer):
                 writer.add_images('Real', (to_np(x)+1.)/2., num_steps, dataformats='NHWC')
         
 def main():
+    os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+    
     rngs = random.PRNGKey(seed=123)
     generator = Generator(training=True)
     discriminator = Discriminator(training=True)

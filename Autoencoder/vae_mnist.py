@@ -162,6 +162,8 @@ def train(num_epochs, train_loader, state, rng, writer):
                 writer.add_images('Input', (to_np(x)+1.)/2., num_steps, dataformats='NHWC')
 
 def main():
+    os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+    
     rng = random.PRNGKey(seed=123)
     autoencoder = Autoencoder(training=True, latents=128)
     dummy_x = jnp.ones((1,32,32,1), dtype=jnp.float32)

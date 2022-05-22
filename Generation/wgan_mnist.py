@@ -186,6 +186,8 @@ def train(num_epochs, train_loader, eval_loader, state_g, state_d, rng, writer):
                 writer.add_images('Real', (to_np(x)+1.)/2., num_steps, dataformats='NHWC')
         
 def main():
+    os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+    
     rngs = random.PRNGKey(seed=123)
     generator = Generator(training=True)
     discriminator = Discriminator(training=True)
