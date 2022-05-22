@@ -165,7 +165,7 @@ def main():
     os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
     
     rng = random.PRNGKey(seed=123)
-    autoencoder = Autoencoder(training=True, latents=128)
+    autoencoder = Autoencoder(training=True, latents=256)
     dummy_x = jnp.ones((1,32,32,1), dtype=jnp.float32)
     state = autoencoder.init(rng, dummy_x, rng)
 
@@ -175,9 +175,9 @@ def main():
                                     tx=tx,
                                     batch_stats=state["batch_stats"])
 
-    train_loader, test_loader = get_mnist_dataloader(batch_size=8)
+    train_loader, test_loader = get_mnist_dataloader(batch_size=32)
     
-    save_dir = 'exp_results/MNIST/vae/'
+    save_dir = 'exp_results/MNIST/vae/latent_256'
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
 

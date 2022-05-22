@@ -8,7 +8,7 @@ import jax.random as random
 import flax.linen as nn
 from flax.training.train_state import TrainState
 import optax
-from data.utils import get_mnist_dataloader
+from data.utils import get_flat_mnist_dataloader as get_mnist_dataloader
 
 def to_np(a):
     return np.asarray(a)
@@ -106,7 +106,7 @@ def main():
     tx = optax.adam(learning_rate=1e-4)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     
-    train_loader, test_loader = get_mnist_dataloader(batch_size=8)
+    train_loader, test_loader = get_mnist_dataloader(batch_size=32)
 
     save_dir = 'exp_results/MNIST/classification'
     os.makedirs(save_dir, exist_ok=True)
