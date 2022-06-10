@@ -283,6 +283,7 @@ def train_step(state_g, state_da, state_db, real_a, real_b, gp_rng):
                                        real_a, 
                                        real_b)
     
+    # update two models using one optimizer.
     grads_g = {'generator_a2b': {'params':grads_g[0]},
                'generator_b2a': {'params':grads_g[1]}}
     
