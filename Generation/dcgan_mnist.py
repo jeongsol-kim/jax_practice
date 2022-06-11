@@ -1,14 +1,18 @@
+# type: ignore
+
 import os
-from typing import Sequence, Any
-from torch.utils.tensorboard import SummaryWriter
-import numpy as np
+from typing import Any, Sequence
+
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import jax.random as random
-import flax.linen as nn
-from flax.training.train_state import TrainState
+import numpy as np
 import optax
 from data.utils import get_mnist_dataloader
+from flax.training.train_state import TrainState
+from torch.utils.tensorboard import SummaryWriter
+
 
 def to_np(a):
     return np.asarray(a)

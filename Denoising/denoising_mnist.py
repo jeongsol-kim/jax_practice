@@ -1,3 +1,5 @@
+# type: ignore
+
 import os
 from typing import Sequence, Any
 from torch.utils.tensorboard import SummaryWriter

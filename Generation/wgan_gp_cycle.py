@@ -1,3 +1,5 @@
+#type: ignore
+
 import os
 import functools
 from typing import Sequence, Any
